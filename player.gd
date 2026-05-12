@@ -1,78 +1,85 @@
 extends CharacterBody2D
 
-@onready var anim = $AnimatedSprite2D
+@onready var anim: AnimatedSprite2D = $AnimatedSprite2D
 
-var velocidad = 200
-var atacando = false
-var ultima_direccion = "down"
+# CAMBIADO: antes decía $AttackArea
+@onready var attack_area: Area2D = $HitboxAtaque
+
+# CAMBIADO: antes decía $AttackArea/CollisionShape2D
+@onready var attack_collision: CollisionShape2D = $HitboxAtaque/CollisionShape2D
+
+const SPEED := 160.0
+const JUMP_FORCE := -360.0
+const GRAVITY := 900.0
+
+var atacando := false
+var direccion := 1
 
 func _ready():
+	attack_collision.disabled = true
 	anim.animation_finished.connect(_on_animation_finished)
 
 func _physics_process(delta):
-	var direccion = Vector2.ZERO
-
-	if Input.is_action_just_pressed("ui_accept") and not atacando:
-		atacar()
-		return
+	if not is_on_floor():
+		velocity.y += GRAVITY * delta
 
 	if atacando:
-		velocity = Vector2.ZERO
+		velocity.x = move_toward(velocity.x, 0, SPEED)
 		move_and_slide()
 		return
 
-	if Input.is_action_pressed("ui_right"):
-		direccion.x += 1
-	if Input.is_action_pressed("ui_left"):
-		direccion.x -= 1
-	if Input.is_action_pressed("ui_down"):
-		direccion.y += 1
-	if Input.is_action_pressed("ui_up"):
-		direccion.y -= 1
+	var input_dir := Input.get_axis("ui_left", "ui_right")
 
-	velocity = direccion.normalized() * velocidad
+	if input_dir != 0:
+		velocity.x = input_dir * SPEED
+		direccion = sign(input_dir)
+		anim.flip_h = direccion < 0
+	else:
+		velocity.x = move_toward(velocity.x, 0, SPEED)
+
+	if Input.is_action_just_pressed("ui_accept") and is_on_floor():
+		velocity.y = JUMP_FORCE
+
+	if Input.is_action_just_pressed("attack"):
+		atacar()
+
+	actualizar_animacion(input_dir)
+
 	move_and_slide()
 
-	if direccion == Vector2.ZERO:
-		if anim.animation != "idle_down":
-			anim.play("idle_down")
+func actualizar_animacion(input_dir):
+	if not is_on_floor():
+		if velocity.y < 0:
+			anim.play("jump")
+		else:
+			anim.play("fall")
+	elif input_dir != 0:
+		anim.play("run")
 	else:
-		if direccion.x > 0:
-			ultima_direccion = "right"
-			anim.flip_h = false
-			anim.play("walk_right")
-
-		elif direccion.x < 0:
-			ultima_direccion = "left"
-			anim.flip_h = true
-			anim.play("walk_right") # misma animación espejada
-
-		elif direccion.y > 0:
-			ultima_direccion = "down"
-			anim.flip_h = false
-			anim.play("walk_down")
-
-		elif direccion.y < 0:
-			ultima_direccion = "up"
-			anim.flip_h = false
-			anim.play("walk_up")
+		anim.play("idle")
 
 func atacar():
-	atacando = true
-	velocity = Vector2.ZERO
+	if atacando:
+		return
 
-	if ultima_direccion == "left":
-		anim.flip_h = true
-		anim.play("attack_right") # ataque común espejado
-	elif ultima_direccion == "right":
-		anim.flip_h = false
-		anim.play("attack_right")
+	atacando = true
+	velocity.x = 0
+
+	anim.stop()
+	anim.play("attack")
+
+	attack_collision.disabled = false
+
+	if direccion > 0:
+		attack_area.position.x = abs(attack_area.position.x)
 	else:
-		anim.flip_h = false
-		anim.play("attack_down")
+		attack_area.position.x = -abs(attack_area.position.x)
 
 func _on_animation_finished():
-	if anim.animation == "attack_down" or anim.animation == "attack_right":
+	if anim.animation == "attack":
 		atacando = false
-		anim.flip_h = false
-		anim.play("idle_down")
+		attack_collision.disabled = true
+		
+func _on_attack_area_body_entered(body):
+	if body.has_method("recibir_daño"):
+		body.recibir_daño()
